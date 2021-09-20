@@ -38,7 +38,7 @@ for it in items:
     if note:
         item_target,weight_target,weight_rank = note[0][0].split("-")
     else:
-        item_target,weight_target,weight_rank = -1
+        item_target,weight_target,weight_rank = 0
 
 
 # get all resources that are found in the current round of each job in the order
@@ -67,8 +67,7 @@ for resource in resources:
         # get working hours / minutes of that resource for this weekday
         # TODO does not consider the "right" weekly schedule yet
         working_hours = get_working_hours(resource, day) # returns the working hours
-        hours = working_hours[0][0] / 2 if working_hours else 0
-        minutes = round(hours * 60)
+        minutes = round(working_hours * 60)
 
         schedule[r].append(minutes)
         day += 1
@@ -159,9 +158,13 @@ data = {
     "l": days,
 
     "profit": profit,
+    "item_targets": targets,
     "target": target,
 
     "iso": iso,
+
+    "target_weights": target_weights,
+    "ranking_weights": ranking_weights,
 
     "jobtype": jobtype,
     "workflow": workflow,
