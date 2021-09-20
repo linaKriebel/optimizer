@@ -57,6 +57,47 @@ def get_jobtype(job_id):
     res = cursor.fetchall()
     return res[0][0]
 
+def get_job_startdate(job_id):
+    cursor.execute("""
+                SELECT j.TerminVon FROM job j
+                WHERE j.JobID = %s;""", 
+                (job_id, ))
+    res = cursor.fetchall()
+    return res[0][0]
+
+def get_job_enddate(job_id):
+    cursor.execute("""
+                SELECT j.TerminBis FROM job j
+                WHERE j.JobID = %s;""", 
+                (job_id, ))
+    res = cursor.fetchall()
+    return res[0][0]
+
+def get_order_startdate(order_id):
+    cursor.execute("""
+                SELECT a.AuftragsDatum FROM auftrag a
+                WHERE a.AuftragID = %s;""", 
+                (order_id, ))
+    res = cursor.fetchall()
+    return res[0][0]
+
+def get_order_enddate(order_id):
+    cursor.execute("""
+                SELECT a.LieferDatum FROM auftrag a
+                WHERE a.AuftragID = %s;""", 
+                (order_id, ))
+    res = cursor.fetchall()
+    return res[0][0]
+
+def get_working_hours(resource_id, weekday):
+    cursor.execute("""
+                SELECT Dauer FROM mitarbeiterwochenplanzeitraum mwpz
+                INNER JOIN mitarbeiterwochenplan mwp ON mwpz.WochenplanID = mwp.MitarbeiterWochenplanID
+                WHERE mwp.PartnerID = %s AND mwpz.Wochentag = %s""", 
+                (resource_id, weekday))
+    res = cursor.fetchall()
+    return res[0][0] / 2 if res else 0 # 1 Dauer is 0.5 hours -> working hours = Dauer / 2
+
 def get_item_of_job(job_id):
     cursor.execute("""
                 SELECT ap.PositionsNr FROM auftragposition ap
@@ -72,6 +113,22 @@ def get_item_price(item_id):
                     INNER JOIN auftragposition ap ON apz.IDPosition = ap.PositionID
                     WHERE ap.PositionID = %s;""", 
                     (item_id, ))
+    res = cursor.fetchall()
+    return res[0][0]
+
+def get_item_note(item_id):
+    cursor.execute("""
+                    SELECT Bemerkung FROM auftragposition ap
+                    WHERE ap.PositionID = %s;""", 
+                    (item_id, ))
+    res = cursor.fetchall()
+    return res
+
+def get_planned_time(job_id):
+    cursor.execute("""
+                    SELECT SUM(jp.Umfang * jp.ZeitProEinheitDouble) FROM jobpreis jp
+                    WHERE jp.JobID = %s;""", 
+                    (job_id, ))
     res = cursor.fetchall()
     return res[0][0]
 
