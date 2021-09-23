@@ -40,6 +40,9 @@ for it in items:
     else:
         item_target,weight_target,weight_rank = 0
 
+    targets.append(float(item_target))
+    target_weights.append(int(weight_target))
+    ranking_weights.append(int(weight_rank))
 
 # get all resources that are found in the current round of each job in the order
 resources = get_results_of_jobs(order)
