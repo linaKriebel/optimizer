@@ -53,8 +53,7 @@ days = (order_end - order_start).days # number of days between start and end dat
 names = []
 schedule = [[] for i in range(n)]
 
-r = 0
-for resource in resources:
+for r, resource in enumerate(resources):
     names.append(get_resource_name(resource, "full")) # get full name
 
     # weekday (0-6) of order (start) date
@@ -72,8 +71,6 @@ for resource in resources:
         schedule[r].append(minutes)
         day += 1
 
-    r += 1
-
 jobtype = []
 item = []
 
@@ -85,8 +82,7 @@ busy = [[] for i in range(n)]
 
 planned = [[0 for x in range(days)] for i in range(m)]
 
-i = 0
-for job in jobs:
+for i, job in enumerate(jobs):
 
     # get jobtype
     jobtype.append(get_jobtype(job))
@@ -118,8 +114,7 @@ for job in jobs:
 
         day += timedelta(days=1)
 
-    j = 0
-    for resource in resources:
+    for j, resource in enumerate(resources):
 
         if is_result(job, resource):
             row = get_result_row(job, resource)
@@ -146,8 +141,6 @@ for job in jobs:
         else:
             prices[j].append(0)
 
-        j += 1
-    i += 1
 
 #### FORMAT DATA FOR MINIZINC####
 
