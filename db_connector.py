@@ -216,3 +216,11 @@ def get_price(row_id):
                 (row_id, ))
     res = cursor.fetchall()
     return res[0][0]
+
+def is_target_profit_margin_active():
+    cursor.execute("""
+                SELECT ses.boolean_value from system_einstellung_system ses 
+                WHERE ses.system_einstellung_key = 'VerhindereUnterschreitenZielrendite';""", 
+                ())
+    res = cursor.fetchall()
+    return True if res[0][0] > 0 else False
