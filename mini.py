@@ -22,35 +22,20 @@ def normalize(model, solver, items):
         # costs
         with instance.branch() as child:
 
-            child.add_string(
-                """
-                obj = costs[{}];
-                """.format(i)
-            )
+            child.add_string("obj = costs[{}];".format(i))
 
             result = child.solve()
-
-            obj = result["obj"]
-            norm[i]["costs"] = obj
+            norm[i]["costs"] = result.objective
 
         # quality
         with instance.branch() as child:
 
-            child.add_string(
-                """
-                obj = quality[{}];
-                """.format(i)
-            )
-
+            child.add_string("obj = quality[{}];".format(i))
 
             result = child.solve()
+            norm[i]["quality"] = result.objective
 
-            obj = result["obj"]
-            norm[i]["quality"] = obj
-
-    print(norm)
-    return norm       
-
+    return norm
 
 def solve(data, iso, target_active, steps):
 
@@ -59,27 +44,29 @@ def solve(data, iso, target_active, steps):
     items = range(1,data["k"]+1)
 
     model = Model("./assign.mzn")
-    gecode = Solver.lookup("gecode")
-    cbc = Solver.lookup("cbc")
+    gecode = Solver.lookup("gecode") # CP solver (does not support float objectives that well)
+    cbc = Solver.lookup("cbc") # MIP solver
     instance = Instance(cbc, model)
 
+    # get values of single objectives for normalization purpose
+    print("##### start normalizing objectives")
     normalized = normalize(model, cbc, items)
     
+    # create objective string
     objective = "constraint obj = "
     for i in items:
         objective += """({cweight}*(costs[{item}]/{cnormalized}) + {qweight}*(quality[{item}]/{qnormalized}))  
-                     """.format(cweight = 1, item = i, cnormalized = normalized[i]["costs"], qweight = 1, qnormalized = normalized[i]["quality"])
+                     """.format(cweight = data["target_weights"][i-1], item = i, cnormalized = normalized[i]["costs"], qweight = data["ranking_weights"][i-1], qnormalized = normalized[i]["quality"])
         if i == len(items):
             objective += ";"
         else:
             objective += " + "
 
-    print(objective)
-
     instance.add_string(objective)
 
     if iso:
         # add ISO 17100 constraint to model instance
+        print("##### add iso constraint")
         instance.add_string(
             """
             % ISO 17100: a TRA followed by a REV cannot be done by the same resource
@@ -93,6 +80,7 @@ def solve(data, iso, target_active, steps):
 
     if target_active:
         # add item target profit margin constraint to model instance
+        print("##### add target profit margin constraint")
         instance.add_string(
             """
             % target margin for each item must be met
@@ -104,10 +92,14 @@ def solve(data, iso, target_active, steps):
     lowest = 0 # currently lowest weighted item target profit margin
     
     c = 0
+    count = 0
     status = Status.UNSATISFIABLE
+    print("##### start searching for optimal solution")
     while status == Status.UNSATISFIABLE:
 
         with instance.branch() as child:
+
+            print("####### constraints too hard, need to adjust")
 
             # TODO THIS WOULD BE GREAT FOR ML!!! was mach ein PM, wenn die Ziele nicht erreicht werden können
             # TODO rausfinden, wie man hier am besten vorgeht, damit man eine Lösung findet! hard-constraints relaxen
@@ -134,6 +126,12 @@ def solve(data, iso, target_active, steps):
             status = result.status
         
         c += 1
+        count += 1
 
+    # TODO terminate after x iterations
     # TODO return result as custom object
+    print("##### search terminated after {} attempts: {}".format(count, result.status))
+    print("#################################################")
+    print(result.statistics)
+    print("#################################################")
     return(result)

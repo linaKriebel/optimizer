@@ -14,6 +14,7 @@ if __name__ == "__main__":
         ORDER = sys.argv[1]
 
     # get data from database
+    print("### fetch data from database")
     data = get_data(ORDER)
 
     iso = is_iso_active(ORDER)
@@ -23,6 +24,7 @@ if __name__ == "__main__":
     jobs = get_jobs(ORDER)
 
     # call minizinc
+    print("### start optimization")
     result = solve(data, iso, target, 10)
     print(result)
 
