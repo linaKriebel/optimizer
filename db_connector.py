@@ -188,6 +188,15 @@ def get_result_row(job_id, resource_id):
     res = cursor.fetchall()
     return res[0][0]
 
+def get_current_round(job_id):
+    cursor.execute("""
+                SELECT r.round_id FROM round r
+                INNER JOIN job j ON r.job_id = j.JobID
+                WHERE j.JobID = %s AND r.current_round = 1;""", 
+                (job_id, ))
+    res = cursor.fetchall()
+    return res[0][0]
+
 def get_rank(job_id, resource_id):
     cursor.execute("""
                 SELECT rsrr.rank FROM round_search_result_row rsrr 
