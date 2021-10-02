@@ -1,6 +1,8 @@
 import json
 from minizinc import Instance, Model, Solver, Status
 
+from connector import AssignmentData
+
 def get_lowest(targets, lowest):
     l = 100
     index = 0
@@ -10,10 +12,29 @@ def get_lowest(targets, lowest):
             index = i
     return index
 
-def normalize(model, solver, items):
+def add_data(instance, data: AssignmentData):
+    instance["n"] = data.n
+    instance["m"] = data.m
+    instance["k"] = data.k
+    instance["l"] = data.l
+    instance["profit"] = data.profit
+    instance["item_targets"] = data.item_targets
+    instance["target"] = data.target
+    instance["target_weights"] = data.target_weights
+    instance["ranking_weights"] = data.ranking_weights
+    instance["jobtype"] = data.jobtype
+    instance["workflow"] = data.workflow
+    instance["item"] = data.item
+    instance["ranking"] = data.ranking
+    instance["price"] = data.price
+    instance["schedule"] = data.schedule
+    instance["planned"] = data.planned
+
+def normalize(model, solver, data, items):
 
     instance = Instance(solver, model)
-    instance.add_file("./data.json")
+    #instance.add_file("./data.json")
+    add_data(instance, data)
 
     norm = dict.fromkeys(items, {})
 
@@ -40,8 +61,8 @@ def normalize(model, solver, items):
 def solve(data, iso, target_active, steps):
 
     # TODO get rid of that!
-    targets = data["item_targets"][:]
-    items = range(1,data["k"]+1)
+    targets = data.item_targets[:]
+    items = range(1,data.k+1)
 
     model = Model("./assign.mzn")
     gecode = Solver.lookup("gecode") # CP solver (does not support float objectives that well)
@@ -50,13 +71,13 @@ def solve(data, iso, target_active, steps):
 
     # get values of single objectives for normalization purpose
     print("##### start normalizing objectives")
-    normalized = normalize(model, cbc, items)
+    normalized = normalize(model, cbc, data, items)
     
     # create objective string
     objective = "constraint obj = "
     for i in items:
         objective += """({cweight}*(costs[{item}]/{cnormalized}) + {qweight}*(quality[{item}]/{qnormalized}))  
-                     """.format(cweight = data["target_weights"][i-1], item = i, cnormalized = normalized[i]["costs"], qweight = data["ranking_weights"][i-1], qnormalized = normalized[i]["quality"])
+                     """.format(cweight = data.target_weights[i-1], item = i, cnormalized = normalized[i]["costs"], qweight = data.ranking_weights[i-1], qnormalized = normalized[i]["quality"])
         if i == len(items):
             objective += ";"
         else:
@@ -106,20 +127,21 @@ def solve(data, iso, target_active, steps):
             
             if c % steps == 0:
                 # find the items with the next lowest weighted target profit margin
-                index = get_lowest(data["target_weights"], lowest)
-                lowest = data["target_weights"][index]
+                index = get_lowest(data.target_weights, lowest)
+                lowest = data.target_weights[index]
                 # reset item target profit margins
-                data["item_targets"] = targets[:]
+                data.item_targets = targets[:]
                 c = 0
             
             # TODO get rid of this
             # reduce target profit margin by 1% each time
-            data["item_targets"][index] = targets[index] - c/100
+            data.item_targets[index] = targets[index] - c/100
 
-            with open('data.json', 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
+            # with open('data.json', 'w', encoding='utf-8') as f:
+            #     json.dump(data.__dict__, f, ensure_ascii=False, indent=4)
 
-            child.add_file("./data.json")
+            # child.add_file("./data.json")
+            add_data(child, data)
 
             # try to solve the COP with the new target profit margins
             result = child.solve()

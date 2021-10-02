@@ -1,96 +1,155 @@
 import json
-
-from datetime import date, timedelta
+    
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import List
 from db_connector import *
 
+@dataclass
+class AssignmentData:
+    n: int
+    m: int
+    k: int
+    l: int
+
+    profit: List = field(default_factory=list)
+    item_targets: List = field(default_factory=list)
+    target: float = 0.0
+
+    target_weights: List = field(default_factory=list)
+    ranking_weights: List = field(default_factory=list)
+
+    jobtype: List = field(default_factory=list)
+    workflow: List = field(default_factory=list)
+    item: List = field(default_factory=list)
+
+    ranking: List = field(default_factory=list)
+    price: List = field(default_factory=list)
+
+    schedule: List = field(default_factory=list)
+    planned: List = field(default_factory=list)
+
+    def __post_init__(self):
+        self.workflow = [{"set": [-1]} for i in range(self.m)]
+        self.ranking = [[] for i in range(self.n)] 
+        self.price = [[] for i in range(self.n)] 
+        self.schedule = [[] for i in range(self.n)]
+        self.planned = [[0 for x in range(self.l)] for i in range(self.m)]
+
+
+def get_item_target(note):
+    split = note.split("-")
+
+    if len(split) == 3:
+        item_target = float(split[0])
+    else:
+        item_target = 0.0
+
+    return item_target
+
+def get_target_weight(note):
+    split = note.split("-")
+
+    if len(split) == 3:
+        target_weight = int(split[1])
+    else:
+        target_weight = 0
+
+    return target_weight
+
+def get_ranking_weight(note):
+    split = note.split("-")
+
+    if len(split) == 3:
+        ranking_weight = int(split[2])
+    else:
+        ranking_weight = 0
+
+    return ranking_weight
+
+def parse_price(price):
+    if price:
+        price = price.replace("*", "") # remove possible minimum price indicator
+        price = price.replace(" EUR", "") # remove currency
+        price = price.replace(".", "") # remove unnecessary de separator
+        price = price.replace(",", ".") # switch to en decimal separator
+        price = float(price) # convert to float value
+        price = round(price) # convert to int value
+        return price
+    else:
+        return 0
+
 def get_data(order):
-    # get target profit margin (Zielrendite)
-    target = get_project_target(order)
 
-    # get all items from order
+     # get all items from order
     items = get_items(order)
-    k = len(items) # number of items
-
+    
     # get all jobs from order
     jobs = get_jobs(order)
-    m = len(jobs) # number of jobs
-
-    profit = []
-    targets = []
-
-    target_weights = []
-    ranking_weights = []
-
-    for it in items:
-        # get item price (profit)
-        profit.append(get_item_price(it))
-
-        # get item note
-        note = get_item_note(it)
-
-        # parse note (<target>-<weight_for_target>-<weight_for_rank>)
-        if note:
-            item_target, weight_target, weight_rank = note[0][0].split("-")
-        else:
-            item_target, weight_target, weight_rank = 0
-
-        targets.append(float(item_target))
-        target_weights.append(int(weight_target))
-        ranking_weights.append(int(weight_rank))
 
     # get all resources that are found in the current round of each job in the order
     resources = get_results_of_jobs(order)
-    n = len(resources) # number of resources
 
     # get order start and end date
     order_start = get_order_startdate(order)
     order_end = get_order_enddate(order)
     days = (order_end - order_start).days # number of days between start and end date
+    
+    # create data object with dimensions
+    data = AssignmentData(len(resources),len(jobs),len(items),days)
 
-    names = []
-    schedule = [[] for i in range(n)]
+    data.target = get_project_target(order)
 
+    for it in items:
+        # get item price (profit)
+        data.profit.append(get_item_price(it))
+
+        # get item note, that constains item target profit margin and weighting
+        note = get_item_note(it)
+
+        # parse note (<target>-<weight>-<weight>)
+        if note:
+            data.item_targets.append(get_item_target(note[0][0]))
+            data.target_weights.append(get_target_weight(note[0][0]))
+            data.ranking_weights.append(get_ranking_weight(note[0][0]))
+        else:
+            # no target profit margin and weighting was entered, set default
+            data.item_targets.append(0.0)
+            data.target_weights.append(1)
+            data.ranking_weights.append(1)
+
+    
     for r, resource in enumerate(resources):
-        names.append(get_resource_name(resource, "full")) # get full name
 
         # weekday (0-6) of order (start) date
-        day = order_start.weekday()
+        weekday = order_start.weekday()
         
         for i in range(days):
             # calculate weekday
-            day = day % 7
+            weekday = weekday % 7
 
             # get working hours / minutes of that resource for this weekday
             # TODO does not consider the "right" weekly schedule yet
-            working_hours = get_working_hours(resource, day) # returns the working hours
+            working_hours = get_working_hours(resource, weekday) # returns the working hours
             minutes = round(working_hours * 60)
 
-            schedule[r].append(minutes)
-            day += 1
+            data.schedule[r].append(minutes)
+            weekday += 1
 
-    jobtype = []
-    item = []
-
-    workflow = [{"set": [-1]} for i in range(m)]
-
-    ranking = [[] for i in range(n)] 
-    prices = [[] for i in range(n)] 
-    busy = [[] for i in range(n)] 
-
-    planned = [[0 for x in range(days)] for i in range(m)]
+    #busy = [[] for i in range(n)] 
 
     for i, job in enumerate(jobs):
 
         # get jobtype
-        jobtype.append(get_jobtype(job))
+        data.jobtype.append(get_jobtype(job))
 
         # get item
-        item.append(get_item_of_job(job))
+        data.item.append(get_item_of_job(job))
         
         # get workflow
         successors = get_successors(job)
         if successors:
-            workflow[i]["set"] = [jobs.index(succ)+1 for succ in successors] # minizinc index starts with 1
+            data.workflow[i]["set"] = [jobs.index(succ)+1 for succ in successors] # minizinc index starts with 1
 
         # get planned time
         pt = get_planned_time(job) / 1000 # in seconds
@@ -107,64 +166,28 @@ def get_data(order):
 
         for d in range(delta):
             idx = (day - order_start).days
-            planned[i][idx] = rate
+            data.planned[i][idx] = rate
 
             day += timedelta(days=1)
 
         for j, resource in enumerate(resources):
 
+            # check if resource is in results list
             if is_result(job, resource):
-                row = get_result_row(job, resource)
-                ranking[j].append(get_rank(job, resource))
-                busy[j].append(get_busy(job, resource))
-            else:
-                row = None
-                ranking[j].append(0)
-                busy[j].append(0)
-
-            if row:
+                data.ranking[j].append(get_rank(job, resource))
+                #busy[j].append(get_busy(job, resource))
                 # get price
+                row = get_result_row(job, resource)
                 price = get_price(row) # TODO job, resource instead of row!
-
-                if price:
-                    price = price.replace("*", "") # remove possible minimum price indicator
-                    price = price.replace(" EUR", "") # remove currency
-                    price = price.replace(".", "") # remove unnecessary de separator
-                    price = price.replace(",", ".") # switch to en decimal separator
-                    price = float(price) # convert to float value
-                    price = round(price) # convert to int value
-
-                    prices[j].append(price)
+                data.price[j].append(parse_price(price))
             else:
-                prices[j].append(0)
+                # resource is not in results list, set default values
+                data.ranking[j].append(0)
+                #busy[j].append(0)
+                data.price[j].append(0)
 
-
-    #### FORMAT DATA FOR MINIZINC####
-
-    data = {
-        "n": n,
-        "m": m,
-        "k": k,
-        "l": days,
-
-        "profit": profit,
-        "item_targets": targets,
-        "target": target,
-
-        "target_weights": target_weights,
-        "ranking_weights": ranking_weights,
-
-        "jobtype": jobtype,
-        "workflow": workflow,
-        "item": item, 
-
-        "ranking": ranking, 
-        "price": prices,
-        "schedule": schedule, 
-        "planned": planned
-    }
-
-    with open('data.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    # create data file (optional)
+    # with open('data.json', 'w', encoding='utf-8') as f:
+    #     json.dump(data.__dict__, f, ensure_ascii=False, indent=4)
 
     return data
