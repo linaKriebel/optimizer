@@ -8,10 +8,12 @@ from soap_connector import *
 if __name__ == "__main__":
 
     ORDER = 1
-    
-    # parse arguments
-    if len(sys.argv)>1:
+    HOSTNAME = "qa30.plunet.com"
+
+    # parse arguments [scriptname, order, host]
+    if len(sys.argv) > 1:
         ORDER = sys.argv[1]
+        HOSTNAME = sys.argv[2]
 
     # get data from database
     print("### fetch data from database")
@@ -40,7 +42,7 @@ if __name__ == "__main__":
     print(assignment)
 
     # send results to bm
-    # uuid = login()
+    # uuid = login(HOSTNAME)
     # for round_id, resource_id in assignment.items():
     #     data = set_resource(uuid, resource_id, round_id)
     #     #print(data)
