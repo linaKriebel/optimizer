@@ -217,14 +217,31 @@ def get_busy(job_id, resource_id):
     res = cursor.fetchall()
     return res[0][0]
 
+# deprecated
+# def get_price(row_id):
+#     cursor.execute("""
+#                 SELECT rsrrrm.ranking_value from round_search_result_row_ranking_mapping rsrrrm 
+#                 INNER JOIN round_search_result_row rsrr ON rsrr.round_search_result_row_id = rsrrrm.round_search_result_row_id
+#                 WHERE rsrr.round_search_result_row_id = %s AND rsrrrm.ranking_method = 'price';""", 
+#                 (row_id, ))
+#     res = cursor.fetchall()
+#     return res[0][0] if res else 0
+
 def get_price(row_id):
     cursor.execute("""
-                SELECT rsrrrm.ranking_value from round_search_result_row_ranking_mapping rsrrrm 
-                INNER JOIN round_search_result_row rsrr ON rsrr.round_search_result_row_id = rsrrrm.round_search_result_row_id
-                WHERE rsrr.round_search_result_row_id = %s AND rsrrrm.ranking_method = 'price';""", 
+                SELECT rsrrrr.price_value from round_search_result_row_ranking rsrrrr 
+                WHERE rsrrrr.round_search_result_row_round_search_result_row_id = %s;""", 
                 (row_id, ))
     res = cursor.fetchall()
-    return res[0][0]
+    return res[0][0] if res else 0
+
+def get_price_currency(row_id):
+    cursor.execute("""
+                SELECT rsrrrm.price_unit from round_search_result_row_ranking rsrrrr 
+                WHERE rsrrrr.round_search_result_row_round_search_result_row_id = %s;""", 
+                (row_id, ))
+    res = cursor.fetchall()
+    return res[0][0] if res else None    
 
 def is_target_profit_margin_active():
     cursor.execute("""
