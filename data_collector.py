@@ -1,8 +1,9 @@
 import json
     
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import timedelta, date
 from typing import List
+
 from db_connector import *
 
 @dataclass
@@ -36,6 +37,17 @@ class AssignmentData:
         self.schedule = [[] for i in range(self.n)]
         self.planned = [[0 for x in range(self.l)] for i in range(self.m)]
 
+@dataclass
+class Job:
+    id: int
+    index: int
+
+    item_index: int = 0
+    jobtype: str = ''
+    current_round_id: int = 0
+    start_date: date = 0
+    end_date: date = None
+    planned_time: int = None
 
 def get_item_target(note):
     split = note.split("-")
@@ -67,6 +79,7 @@ def get_ranking_weight(note):
 
     return ranking_weight
 
+#deprecated (not formatted like that anymore)
 def parse_price(price):
     if price:
         price = price.replace("*", "") # remove possible minimum price indicator
@@ -178,8 +191,9 @@ def get_data(order):
                 #busy[j].append(get_busy(job, resource))
                 # get price
                 row = get_result_row(job, resource)
-                price = get_price(row) # TODO job, resource instead of row!
-                data.price[j].append(parse_price(price))
+                price = round(get_price(row)) # TODO job, resource instead of row!
+                print("price {} for row {}".format(price, row))
+                data.price[j].append(price)
             else:
                 # resource is not in results list, set default values
                 data.ranking[j].append(0)
@@ -187,7 +201,7 @@ def get_data(order):
                 data.price[j].append(0)
 
     # create data file (optional)
-    # with open('data.json', 'w', encoding='utf-8') as f:
-    #     json.dump(data.__dict__, f, ensure_ascii=False, indent=4)
+    with open('data.json', 'w', encoding='utf-8') as f:
+        json.dump(data.__dict__, f, ensure_ascii=False, indent=4)
 
     return data
