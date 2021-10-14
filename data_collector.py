@@ -37,12 +37,6 @@ class AssignmentData:
         self.schedule = [[] for i in range(self.n)]
         self.planned = [[0 for x in range(self.l)] for i in range(self.m)]
 
-    def get_number_of_jobs(self, idx):
-        no = 0
-        for i in self.item:
-            if i == idx: no += 1           
-        return no
-
 @dataclass
 class Job:
     id: int

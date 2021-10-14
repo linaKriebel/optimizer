@@ -61,8 +61,8 @@ def solve(data, iso, target_active, steps):
         opt_costs = opt(model, cbc, data, f"obj = costs[{i}];")
         opt_quality = opt(model, cbc, data, f"obj = quality[{i}];")
 
-        objective += f"({data.target_weights[i-1]}*(costs[{i}]-{opt_costs}) + {data.ranking_weights[i-1]}*((quality[{i}]-{opt_quality})/{data.get_number_of_jobs(i)})) + "   
-    
+        objective += f"({data.target_weights[i-1]}*(costs[{i}]-{opt_costs}) + {data.ranking_weights[i-1]}*(quality[{i}]-{opt_quality})) + "   
+
     opt_parallel = opt(model, cbc, data, "obj = parallel_violations;")
     opt_capacity = opt(model, cbc, data, "obj = capacity_violations;")
 

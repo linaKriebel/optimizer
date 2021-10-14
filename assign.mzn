@@ -31,25 +31,25 @@ array[JOB,DAY] of int: planned;
 array[JOB] of var RESOURCE: assigned;
 
 array[ITEM] of var int: costs;
-array[ITEM] of var -10.0..10.0: margin;
-var -10.0..10.0: profit_margin;
+array[ITEM] of var float: margin;
+var float: profit_margin;
 
-array[ITEM] of var int: quality;
+array[ITEM] of var float: quality;
 
 array[RESOURCE,DAY] of var int: capacity;
 
 var int: parallel_violations;
 var int: capacity_violations;
-var float: profit_violation;
 
 var float: obj;
 
-% margin = profit - cost / profit
+% profit margin = (profit - cost) / profit
 constraint forall(i in ITEM)(sum(j in JOB where item[j] = i) (price[assigned[j],j]) = costs[i]);
 constraint forall(i in ITEM)(((profit[i] - costs[i]) / profit[i]) = margin[i]);
+constraint profit_margin = ((sum(i in ITEM)(profit[i]) - sum(i in ITEM)(costs[i])) / sum(i in ITEM)(profit[i]));
 
 % quality = sum(rank of assigned resource) per job of item
-constraint forall(i in ITEM)(sum(j in JOB where item[j] = i)(ranking[assigned[j], j]) = quality[i]);
+constraint forall(i in ITEM)(sum(j in JOB where item[j] = i)(ranking[assigned[j], j])/sum(j in JOB where item[j] = i)(1) = quality[i]);
 
 % HARD CONSTRAINTS
 
@@ -57,10 +57,6 @@ constraint forall(i in ITEM)(sum(j in JOB where item[j] = i)(ranking[assigned[j]
 constraint forall(j in JOB)(ranking[assigned[j], j] > 0);
 
 % SOFT CONSTRAINTS
-
-% target margin for the project should be met
-constraint profit_margin = ((sum(i in ITEM)(profit[i]) - sum(i in ITEM)(costs[i])) / sum(i in ITEM)(profit[i]));
-constraint profit_violation = target - profit_margin;
 
 % jobs that are running in parallel should not be done by the same resource
 constraint parallel_violations = sum(j1, j2 in JOB where j1 < j2 /\ workflow[j1] = workflow[j2])(assigned[j1] != assigned[j2]);
@@ -78,4 +74,4 @@ constraint capacity_violations = sum(r in RESOURCE, d in DAY)(capacity[r,d] < 0)
 
 solve minimize obj;
 
-output["assigned = \(assigned);\nmargin = \(margin);\ncosts = \(costs);\nquality = \(quality);\nprofit margin = \(profit_margin);\nprofit violation = \(profit_violation);\ncapacity violations = \(capacity_violations);\nparallel violations = \(parallel_violations);\nobj = \(obj)"];
+output["assigned = \(assigned);\nmargin = \(margin);\ncosts = \(costs);\nquality = \(quality);\nprofit margin = \(profit_margin);\ncapacity violations = \(capacity_violations);\nparallel violations = \(parallel_violations);\nobj = \(obj)"];
