@@ -122,7 +122,7 @@ def get_item_note(item_id):
                     WHERE ap.PositionID = %s;""", 
                     (item_id, ))
     res = cursor.fetchall()
-    return res
+    return res[0][0] if res else None
 
 def get_planned_time(job_id):
     cursor.execute("""

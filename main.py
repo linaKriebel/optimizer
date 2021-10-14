@@ -1,13 +1,13 @@
 import sys
 
-from connector import *
+from data_collector import *
 from db_connector import *
 from mini import *
 from soap_connector import *
 
 if __name__ == "__main__":
 
-    ORDER = 1
+    ORDER = 173
     HOSTNAME = "qa30.plunet.com"
 
     # parse arguments [scriptname, order, host]
@@ -30,19 +30,16 @@ if __name__ == "__main__":
     result = solve(data, iso, target, 10)
     print(result)
 
-    # parse minizinc result
-    assignment = {}
+    uuid = login(HOSTNAME)
+
     if result:
+        # parse minizinc result
         for i in range(len(jobs)):
             round_id = get_current_round(jobs[i])
             resource_id = resources[result["assigned"][i]-1]
 
-            assignment[round_id] = resource_id
+            # send results to bm
+            status = set_resource(uuid, resource_id, round_id)
+            print(status)
 
-    print(assignment)
-
-    # send results to bm
-    # uuid = login(HOSTNAME)
-    # for round_id, resource_id in assignment.items():
-    #     data = set_resource(uuid, resource_id, round_id)
-    #     #print(data)
+    # TODO give some useful statistics to the user   
