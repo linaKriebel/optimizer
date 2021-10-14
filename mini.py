@@ -1,7 +1,6 @@
-import json
 from minizinc import Instance, Model, Solver, Status
 
-from connector import AssignmentData
+from data_collector import AssignmentData
 
 def get_lowest(targets, lowest):
     l = 100
@@ -30,58 +29,44 @@ def add_data(instance, data: AssignmentData):
     instance["schedule"] = data.schedule
     instance["planned"] = data.planned
 
-def normalize(model, solver, data, items):
-
+def opt(model, solver, data, objective):
+    
     instance = Instance(solver, model)
-    #instance.add_file("./data.json")
     add_data(instance, data)
 
-    norm = dict.fromkeys(items, {})
+    instance.add_string(objective)
+    result = instance.solve()
 
-    for i in items:
-
-        # costs
-        with instance.branch() as child:
-
-            child.add_string("obj = costs[{}];".format(i))
-
-            result = child.solve()
-            norm[i]["costs"] = result.objective
-
-        # quality
-        with instance.branch() as child:
-
-            child.add_string("obj = quality[{}];".format(i))
-
-            result = child.solve()
-            norm[i]["quality"] = result.objective
-
-    return norm
+    if result.status == Status.OPTIMAL_SOLUTION:
+        return round(result.objective) # cast to int values
+    else:
+        print(f"###### {result.status}! no solution found for '{objective}'")
 
 def solve(data, iso, target_active, steps):
 
-    # TODO get rid of that!
-    targets = data.item_targets[:]
-    items = range(1,data.k+1)
-
-    model = Model("./assign.mzn")
-    gecode = Solver.lookup("gecode") # CP solver (does not support float objectives that well)
+    model = Model("assign.mzn")
+    
+    gecode = Solver.lookup("gecode") # CP solver (not sufficient for float objectives)
     cbc = Solver.lookup("cbc") # MIP solver
+    
     instance = Instance(cbc, model)
 
-    # get values of single objectives for normalization purpose
-    print("##### start normalizing objectives")
-    normalized = normalize(model, cbc, data, items)
-    
     # create objective string
+    print("##### create normalized weighted sum objective")
     objective = "constraint obj = "
-    for i in items:
-        objective += """({cweight}*(costs[{item}]/{cnormalized}) + {qweight}*(quality[{item}]/{qnormalized}))  
-                     """.format(cweight = data.target_weights[i-1], item = i, cnormalized = normalized[i]["costs"], qweight = data.ranking_weights[i-1], qnormalized = normalized[i]["quality"])
-        if i == len(items):
-            objective += ";"
-        else:
-            objective += " + "
+
+    for i in range(1,data.k+1):
+
+        # search for optimal values of individual objectives (goal programming approach)
+        opt_costs = opt(model, cbc, data, f"obj = costs[{i}];")
+        opt_quality = opt(model, cbc, data, f"obj = quality[{i}];")
+
+        objective += f"({data.target_weights[i-1]}*(costs[{i}]-{opt_costs}) + {data.ranking_weights[i-1]}*((quality[{i}]-{opt_quality})/{data.get_number_of_jobs(i)})) + "   
+    
+    opt_parallel = opt(model, cbc, data, "obj = parallel_violations;")
+    opt_capacity = opt(model, cbc, data, "obj = capacity_violations;")
+
+    objective += f"parallel_violations-{opt_parallel} + capacity_violations-{opt_capacity};"
 
     instance.add_string(objective)
 
@@ -109,6 +94,9 @@ def solve(data, iso, target_active, steps):
             """
         )
 
+    # save a copy of the original item target profit margins
+    targets = data.item_targets[:]
+
     index = 0 # index of the currently lowest weighted item target profit margin
     lowest = 0 # currently lowest weighted item target profit margin
     
@@ -118,29 +106,29 @@ def solve(data, iso, target_active, steps):
     print("##### start searching for optimal solution")
     while status == Status.UNSATISFIABLE:
 
-        with instance.branch() as child:
+        # TODO terminate after x iterations
+        if count > 100:
+            break
 
-            print("####### constraints too hard, need to adjust")
+        with instance.branch() as child:
 
             # TODO THIS WOULD BE GREAT FOR ML!!! was mach ein PM, wenn die Ziele nicht erreicht werden können
             # TODO rausfinden, wie man hier am besten vorgeht, damit man eine Lösung findet! hard-constraints relaxen
-            
-            if c % steps == 0:
-                # find the items with the next lowest weighted target profit margin
-                index = get_lowest(data.target_weights, lowest)
-                lowest = data.target_weights[index]
-                # reset item target profit margins
-                data.item_targets = targets[:]
-                c = 0
-            
-            # TODO get rid of this
-            # reduce target profit margin by 1% each time
-            data.item_targets[index] = targets[index] - c/100
 
-            # with open('data.json', 'w', encoding='utf-8') as f:
-            #     json.dump(data.__dict__, f, ensure_ascii=False, indent=4)
+            # after the first failed attempt
+            if count > 0:
 
-            # child.add_file("./data.json")
+                if c % steps == 0:
+                    # find the items with the next lowest weighted target profit margin
+                    index = get_lowest(data.target_weights, lowest)
+                    lowest = data.target_weights[index]
+                    # reset item target profit margins to original
+                    data.item_targets = targets[:]
+                    c = 0
+                
+                # reduce target profit margin by 1% each time
+                data.item_targets[index] = targets[index] - c/100
+
             add_data(child, data)
 
             # try to solve the COP with the new target profit margins
@@ -149,11 +137,10 @@ def solve(data, iso, target_active, steps):
         
         c += 1
         count += 1
-
-    # TODO terminate after x iterations
+    
     # TODO return result as custom object
-    print("##### search terminated after {} attempts: {}".format(count, result.status))
+    print("### solution found after {} attempts: {}".format(count, result.status))
     print("#################################################")
-    print(result.statistics)
+    print(result.statistics["time"])
     print("#################################################")
     return(result)
