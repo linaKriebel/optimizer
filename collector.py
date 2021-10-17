@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta, date
 from typing import List
 
-from db_connector import *
+import dbconnector
 
 @dataclass
 class AssignmentData:
@@ -12,6 +12,9 @@ class AssignmentData:
     m: int
     k: int
     l: int
+
+    resources: List = field(default_factory=list)
+    jobs: List = field(default_factory=list)
 
     profit: List = field(default_factory=list)
     item_targets: List = field(default_factory=list)
@@ -95,25 +98,28 @@ def parse_price(price):
 
 def get_data(order):
 
-    items = get_items(order)
-    jobs = get_jobs(order)
-    resources = get_results_of_jobs(order)
+    items = dbconnector.get_items(order)
+    jobs = dbconnector.get_jobs(order)
+    resources = dbconnector.get_results_of_jobs(order)
 
-    order_start = get_order_startdate(order)
-    order_end = get_order_enddate(order)
+    order_start = dbconnector.get_order_startdate(order)
+    order_end = dbconnector.get_order_enddate(order)
     days = (order_end - order_start).days # number of days between start and end date
     
     # create data object with dimensions
     data = AssignmentData(len(resources),len(jobs),len(items),days)
 
-    data.target = get_project_target(order)
+    data.resources = resources
+    data.jobs = jobs
+
+    data.target = dbconnector.get_project_target(order)
 
     for it in items:
         # get item price (profit)
-        data.profit.append(get_item_price(it))
+        data.profit.append(dbconnector.get_item_price(it))
 
         # get item note, that constains item target profit margin and weightings
-        note = get_item_note(it)
+        note = dbconnector.get_item_note(it)
 
         # parse note (<target>-<weight>-<weight>)
         if note:
@@ -132,7 +138,7 @@ def get_data(order):
 
             # get working hours / minutes of that resource for this weekday
             # TODO does not consider the correct weekly schedule yet
-            working_hours = get_working_hours(resource, weekday)
+            working_hours = dbconnector.get_working_hours(resource, weekday)
             minutes = round(working_hours * 60)
 
             data.schedule[r].append(minutes)
@@ -141,23 +147,23 @@ def get_data(order):
     for i, job in enumerate(jobs):
 
         # get jobtype
-        data.jobtype.append(get_jobtype(job))
+        data.jobtype.append(dbconnector.get_jobtype(job))
 
         # get item
-        data.item.append(get_item_of_job(job))
+        data.item.append(dbconnector.get_item_of_job(job))
         
         # get workflow
-        successors = get_successors(job)
+        successors = dbconnector.get_successors(job)
         if successors:
             # format sets for MiniZinc as dict --> "set": []
             data.workflow[i]["set"] = [jobs.index(succ)+1 for succ in successors] # minizinc index starts with 1
 
         # get planned time
-        pt = get_planned_time(job) / 1000 # in seconds
+        pt = dbconnector.get_planned_time(job) / 1000 # in seconds
 
         # get start and end date
-        start = get_job_startdate(job)
-        end = get_job_enddate(job)
+        start = dbconnector.get_job_startdate(job)
+        end = dbconnector.get_job_enddate(job)
 
         delta = (end - start).days
 
@@ -176,10 +182,10 @@ def get_data(order):
         for j, resource in enumerate(resources):
 
             # check if resource is in results list
-            if is_result(job, resource):
-                data.ranking[j].append(get_rank(job, resource))
+            if dbconnector.is_result(job, resource):
+                data.ranking[j].append(dbconnector.get_rank(job, resource))
                 # TODO get price by job and resource instead of row
-                price = round(get_price(get_result_row(job, resource))) # rounded to int value
+                price = round(dbconnector.get_price(dbconnector.get_result_row(job, resource))) # rounded to int value
                 data.price[j].append(price)
             else:
                 # resource is not in results list, set default values

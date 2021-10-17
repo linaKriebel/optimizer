@@ -1,6 +1,6 @@
 from minizinc import Instance, Model, Solver, Status
 
-from data_collector import AssignmentData
+from collector import AssignmentData
 
 def get_lowest(targets, lowest):
     l = 100

@@ -1,9 +1,9 @@
 import sys
 
-from data_collector import *
-from db_connector import *
-from mini import *
-from soap_connector import *
+import collector
+import dbconnector
+import minimizer 
+import bmconnector
 
 if __name__ == "__main__":
 
@@ -17,29 +17,27 @@ if __name__ == "__main__":
 
     # get data from database
     print("### fetch data from database")
-    data = get_data(ORDER)
+    data = collector.get_data(ORDER)
 
-    iso = is_iso_active(ORDER)
-    target = is_target_profit_margin_active()
-
-    resources = get_results_of_jobs(ORDER)
-    jobs = get_jobs(ORDER)
+    iso = dbconnector.is_iso_active(ORDER)
+    target = dbconnector.is_target_profit_margin_active()
 
     # call minizinc
     print("### start optimization")
-    result = solve(data, iso, target, 10)
+    result = minimizer.solve(data, iso, target, 10)
     print(result)
 
-    uuid = login(HOSTNAME)
+    # connect to bm
+    bmconnector.login(HOSTNAME)
 
     if result:
         # parse minizinc result
-        for i in range(len(jobs)):
-            round_id = get_current_round(jobs[i])
-            resource_id = resources[result["assigned"][i]-1]
+        for i in range(data.m):
+            round_id = dbconnector.get_current_round(data.jobs[i])
+            resource_id = data.resources[result["assigned"][i]-1]
 
             # send results to bm
-            status = set_resource(uuid, resource_id, round_id)
+            status = bmconnector.set_resource(resource_id, round_id)
             print(status)
 
     # TODO give some useful statistics to the user   
