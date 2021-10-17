@@ -38,7 +38,7 @@ def opt(model, solver, data, objective):
     result = instance.solve()
 
     if result.status == Status.OPTIMAL_SOLUTION:
-        return round(result.objective) # cast to int values
+        return result.objective
     else:
         print(f"###### {result.status}! no solution found for '{objective}'")
 
@@ -58,15 +58,17 @@ def solve(data, iso, target_active, steps):
     for i in range(1,data.k+1):
 
         # search for optimal values of individual objectives (goal programming approach)
-        opt_costs = opt(model, cbc, data, f"obj = costs[{i}];")
-        opt_quality = opt(model, cbc, data, f"obj = quality[{i}];")
+        opt_costs = opt(model, cbc, data, f"obj = obj_costs[{i}];")
+        opt_quality = opt(model, cbc, data, f"obj = obj_quality[{i}];")
 
-        objective += f"({data.target_weights[i-1]}*(costs[{i}]-{opt_costs}) + {data.ranking_weights[i-1]}*(quality[{i}]-{opt_quality})) + "   
+        objective += f"({data.target_weights[i-1]}*(obj_costs[{i}]-{opt_costs}) + {data.ranking_weights[i-1]}*(obj_quality[{i}]-{opt_quality})) + "   
 
     opt_parallel = opt(model, cbc, data, "obj = parallel_violations;")
     opt_capacity = opt(model, cbc, data, "obj = capacity_violations;")
 
     objective += f"parallel_violations-{opt_parallel} + capacity_violations-{opt_capacity};"
+
+    print(objective)
 
     instance.add_string(objective)
 
