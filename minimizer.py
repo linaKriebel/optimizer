@@ -1,3 +1,4 @@
+import logging
 from minizinc import Instance, Model, Solver, Status
 
 from collector import AssignmentData
@@ -40,7 +41,7 @@ def opt(model, solver, data, objective):
     if result.status == Status.OPTIMAL_SOLUTION:
         return result.objective
     else:
-        print(f"###### {result.status}! no solution found for '{objective}'")
+        logging.debug(f"{result.status}! no solution found for '{objective}'")
 
 def solve(data, iso, target_active, steps):
 
@@ -52,32 +53,32 @@ def solve(data, iso, target_active, steps):
     instance = Instance(cbc, model)
 
     # create objective string
-    print("##### create normalized weighted sum objective")
+    logging.info("Create normalized weighted sum objective")
     objective = "constraint obj = "
 
     for i in range(1,data.k+1):
 
-        # search for optimal values of individual objectives (goal programming approach)
+        # search for optimal values of individual objectives
         opt_costs = opt(model, cbc, data, f"obj = obj_costs[{i}];")
         opt_quality = opt(model, cbc, data, f"obj = obj_quality[{i}];")
 
-        objective += f"({data.target_weights[i-1]}*(obj_costs[{i}]-{opt_costs}) + {data.ranking_weights[i-1]}*(obj_quality[{i}]-{opt_quality})) + "   
+        objective += f"({data.target_weights[i-1]}*(obj_costs[{i}]/{opt_costs}) + {data.ranking_weights[i-1]}*(obj_quality[{i}]/{opt_quality})) + "   
 
     opt_parallel = opt(model, cbc, data, "obj = parallel_violations;")
     opt_capacity = opt(model, cbc, data, "obj = capacity_violations;")
 
-    objective += f"parallel_violations-{opt_parallel} + capacity_violations-{opt_capacity};"
+    objective += f"parallel_violations + capacity_violations;"
 
-    print(objective)
+    logging.debug(objective)
 
     instance.add_string(objective)
 
+    # TODO this should be considered for the optimal obj values if active
     if iso:
         # add ISO 17100 constraint to model instance
-        print("##### add iso constraint")
+        logging.debug("ISO constraint active")
         instance.add_string(
             """
-            % ISO 17100: a TRA followed by a REV cannot be done by the same resource
             constraint forall(j1 in JOB) (
                 forall(j2 in workflow[j1]) (
                     (jobtype[j1] = TRA /\ jobtype[j2] = REV) -> assigned[j1] != assigned[j2]
@@ -88,10 +89,9 @@ def solve(data, iso, target_active, steps):
 
     if target_active:
         # add item target profit margin constraint to model instance
-        print("##### add target profit margin constraint")
+        logging.debug("Target profit margin constraint active")
         instance.add_string(
             """
-            % target margin for each item must be met
             constraint forall(i in ITEM)(margin[i] >= item_targets[i]);
             """
         )
@@ -105,7 +105,7 @@ def solve(data, iso, target_active, steps):
     c = 0
     count = 0
     status = Status.UNSATISFIABLE
-    print("##### start searching for optimal solution")
+    logging.info("Start searching for optimal solution")
     while status == Status.UNSATISFIABLE:
 
         # TODO terminate after x iterations
@@ -141,8 +141,7 @@ def solve(data, iso, target_active, steps):
         count += 1
     
     # TODO return result as custom object
-    print("### solution found after {} attempts: {}".format(count, result.status))
-    print("#################################################")
-    print(result.statistics["time"])
-    print("#################################################")
+    logging.info(f"Solution found after {count} attempts: {result.status}")
+    logging.debug(f"Time needed: {result.statistics['time']}")
+    logging.debug(result)
     return(result)
