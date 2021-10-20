@@ -15,6 +15,7 @@ class AssignmentData:
 
     resources: List = field(default_factory=list)
     jobs: List = field(default_factory=list)
+    items: List = field(default_factory=list)
 
     profit: List = field(default_factory=list)
     item_targets: List = field(default_factory=list)
@@ -111,6 +112,7 @@ def get_data(order):
 
     data.resources = resources
     data.jobs = jobs
+    data.items = items
 
     data.target = dbconnector.get_project_target(order)
 
