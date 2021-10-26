@@ -181,38 +181,39 @@ def solve(data: AssignmentData, iso, target_active, steps):
     logging.debug(objective)
 
     # try to find a solution without the target profit margin constraints
+    print("start search 1")
     solution = instance.solve().solution
+    print("finished search 1")
 
-    # check if the instance is solvable so far (all items satisfiable)
-    if result.satisfiable:
+    # add the item target profit margin constraint, if active and (probably) satisfiable
+    for item in items:
+        if item.constrained and item.satisfiable:
+            print("add item target constraint")
+            instance.add_string(item.constraint)
 
-        # add the item target profit margin constraints, if active
-        for item in items:
-            if item.constrained:
-                instance.add_string(item.constraint)
+    # check if the problem instance is still solvable
+    print("start search 2")
+    res = instance.solve()
+    print("finished search 2")
+    if res.status == Status.OPTIMAL_SOLUTION:
+        # yes, override the solution
+        solution = res.solution
 
-        # check if the problem instance is still solvable
-        res = instance.solve()
-        if res.status == Status.OPTIMAL_SOLUTION:
-            # yes, override the solution
-            solution = res.solution
-            result.satisfiable = True
-            result.message = "Optimal solution found!"
+        # add the project margin constraint if active
+        if target_active:
+            print("add project target constraint")
+            instance.add_string(PROJECT_MARGIN_CONSTRAINT)
 
-            # add the project margin constraint if active
-            if target_active:
-                instance.add_string(PROJECT_MARGIN_CONSTRAINT)
-
-                #check if the problem instance is still solvable
-                res = instance.solve()
-                if res.status == Status.OPTIMAL_SOLUTION:
-                    # yes, override the solution
-                    solution = res.solution
-                    result.satisfiable = True
-                    result.message = "Optimal solution found!"
-                else:
-                    result.satisfiable = False
-                    result.message = "The project's target profit margin cannot be reached. You could consider to lower it."                        
+            #check if the problem instance is still solvable
+            print("start search 3")
+            res = instance.solve()
+            print("finished search 3")
+            if res.status == Status.OPTIMAL_SOLUTION:
+                # yes, override the solution
+                solution = res.solution
+            else:
+                result.satisfiable = False
+                result.message = "The project's target profit margin cannot be reached. You could consider to lower it."                        
 
     # update the item information
     for i, item in enumerate(items):
