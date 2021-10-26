@@ -56,18 +56,18 @@ class Job:
 def get_item_target(note, order):
     split = note.split("-")
 
-    if len(split) == 3:
+    if len(split) >= 3:
         item_target = float(split[0])
     else:
         # use project target profit margin as default for item
-        item_target = get_project_target(order)
+        item_target = dbconnector.get_project_target(order)
 
     return item_target
 
 def get_target_weight(note):
     split = note.split("-")
 
-    if len(split) == 3:
+    if len(split) >= 3:
         target_weight = int(split[1])
     else:
         target_weight = 1
@@ -77,7 +77,7 @@ def get_target_weight(note):
 def get_ranking_weight(note):
     split = note.split("-")
 
-    if len(split) == 3:
+    if len(split) >= 3:
         ranking_weight = int(split[2])
     else:
         ranking_weight = 1
