@@ -2,28 +2,29 @@ import logging
 
 from dataclasses import dataclass, field
 from typing import List
-from minizinc import Instance, Model, Solver, Status
+from minizinc import Instance, Model, Solver, Status, error
 
 from collector import AssignmentData
+
+ISO_CONSTRAINT = """
+                constraint forall(j1 in JOB) (
+                    forall(j2 in workflow[j1]) (
+                        (jobtype[j1] = TRA /\ jobtype[j2] = REV) -> assigned[j1] != assigned[j2]
+                    )
+                ); 
+                """
+PROJECT_MARGIN_CONSTRAINT = "constraint profit_margin >= target;"
 
 @dataclass
 class AssignmentResult:
     k: int # number of items
 
-    successful: bool = False 
-
-    original_item_target_margin: List = field(default_factory=list)
-    optimal_costs: List = field(default_factory=list)
-    optimal_quality: List = field(default_factory=list)
-
-    delta_margin: int = 0
-    delta_costs: int = 0
-    delta_quality = 0
+    satisfiable: bool = True
+    message: str = "" 
 
     assignment: List = field(default_factory=list)
-    item_costs: List = field(default_factory=list)
-    item_margin: List = field(default_factory=list)
-    item_quality: List = field(default_factory=list)
+
+    items: List = field(default_factory=list)
     
     project_margin: float = 0.0
     capacity_violations: int = 0
@@ -33,22 +34,28 @@ class AssignmentResult:
         self.optimal_costs = [0 for i in range(self.k)]
         self.optimal_quality = [0 for i in range(self.k)]
 
-    def evaluate_optimal(self):
-        # difference between target and actual margin per item (converted to percent, rounded to int)
-        self.delta_margin = [round((self.original_item_target_margin[i] - self.item_margin[i]) * 100) for i in range(self.k)]
+@dataclass
+class ItemResult:
+    midx: int   
+    constrained: bool
+    target_margin: float
+    
+    margin_weight: int
+    quality_weight: int
 
-        # percentage variance of actual to optimal value --> the solution could have been x percent better 
-        self.delta_costs = [round((self.item_costs[i] * 100) / self.optimal_costs[i])-100 for i in range(self.k)]
-        self.delta_qualits = [round((self.item_quality[i] * 100) / self.optimal_quality[i])-100 for i in range(self.k)]
+    constraint: str = ""
+    optimal_costs: float = 0.0
+    optimal_margin: float = 0.0
+    actual_margin: float = 0.0
+    optimal_quality: float = 0.0
+    actual_quality: float = 0.0
 
-def get_lowest(targets, lowest):
-    l = 100
-    index = 0
-    for i, value in enumerate(targets):
-        if value < l and value > lowest: 
-            l = value
-            index = i
-    return index
+    satisfiable: bool = True
+    distance: float = 0.0
+
+    def __post_init__(self):
+        if self.constrained:
+            self.constraint = f"constraint margin[{self.midx}] >= item_targets[{self.midx}];"
 
 def add_data(instance, data: AssignmentData):
     instance["n"] = data.n
@@ -68,133 +75,158 @@ def add_data(instance, data: AssignmentData):
     instance["schedule"] = data.schedule
     instance["planned"] = data.planned
 
-def opt(model, solver, data: AssignmentData, objective):
-    
-    instance = Instance(solver, model)
-    add_data(instance, data)
+def opt(instance: Instance, objective):
+    with instance.branch() as child:
 
-    instance.add_string(objective)
-    result = instance.solve()
+        child.add_string(objective)
 
-    if result.status == Status.OPTIMAL_SOLUTION:
-        return result.objective
-    else:
-        logging.debug(f"{result.status}! no solution found for '{objective}'")
+        try:
+            result = child.solve()
+        except error as err:
+            logging.error(f"An error occurred while trying to find optimal value for '{objective}': {err.message}")
+            return None
 
-def solve(data, iso, target_active, steps):
+        if result.status != Status.OPTIMAL_SOLUTION:
+            logging.error(f"No solution found for '{objective}': {result.status}")
+            return None
+
+        return result
+     
+def solve(data: AssignmentData, iso, target_active, steps):
 
     model = Model("assign.mzn")
-    
-    gecode = Solver.lookup("gecode") # CP solver (not sufficient for float objectives)
-    cbc = Solver.lookup("cbc") # MIP solver
-    
+    cbc = Solver.lookup("cbc") # MIP solver   
     instance = Instance(cbc, model)
 
-    # create objective string
-    logging.info("Create normalized weighted sum objective")
-    objective = "constraint obj = "
+    add_data(instance, data)
 
-    for i in range(1,data.k+1):
+    result = AssignmentResult(data.k)
+    items = [ItemResult(i+1, target_active, data.item_targets[i], data.target_weights[i], data.ranking_weights[i]) for i in range(data.k)]
 
-        # search for optimal values of individual objectives
-        opt_costs = opt(model, cbc, data, f"obj = obj_costs[{i}];")
-        opt_quality = opt(model, cbc, data, f"obj = obj_quality[{i}];")
+    # 1) check if the problem instance has any data inconsistencies
+    with instance.branch() as child:
+        child.add_string("obj = 0.0;")
+        try:
+            child.solve()
+        except error.MiniZincAssertionError as err:
+            # there must be an error in the problem instance, e.g. not every job has at least one matching resource
+            logging.info(f"UNSATISFIABLE: {err.message}") 
+            result.satisfiable = False
+            result.message = "The problem instance is not valid. Please check whether each job has at least one matching resource."
+            return result
 
-        objective += f"({data.target_weights[i-1]}*(obj_costs[{i}]/{opt_costs}) + {data.ranking_weights[i-1]}*(obj_quality[{i}]/{opt_quality})) + "   
-
-    opt_parallel = opt(model, cbc, data, "obj = parallel_violations;")
-    opt_capacity = opt(model, cbc, data, "obj = capacity_violations;")
-
-    objective += f"parallel_violations + capacity_violations;"
-
-    logging.debug(objective)
-
-    instance.add_string(objective)
-
-    # TODO this should be considered for the optimal obj values if active
+    # 2) check optional ISO constraint 
     if iso:
         # add ISO 17100 constraint to model instance
-        logging.debug("ISO constraint active")
-        instance.add_string(
-            """
-            constraint forall(j1 in JOB) (
-                forall(j2 in workflow[j1]) (
-                    (jobtype[j1] = TRA /\ jobtype[j2] = REV) -> assigned[j1] != assigned[j2]
-                )
-            ); 
-            """
-        )
-
-    if target_active:
-        # add item target profit margin constraint to model instance
-        logging.debug("Target profit margin constraint active")
-        instance.add_string(
-            """
-            constraint forall(i in ITEM)(margin[i] >= item_targets[i]);
-            """
-        )
-
-    # save a copy of the original item target profit margins
-    targets = data.item_targets[:]
-    result.original_item_target_margin = targets
-
-    index = 0 # index of the currently lowest weighted item target profit margin
-    lowest = 0 # currently lowest weighted item target profit margin
-    
-    c = 0
-    count = 0
-    status = Status.UNSATISFIABLE
-    logging.info("Start searching for optimal solution")
-    # TODO terminate after given time
-    while status == Status.UNSATISFIABLE and count < 100:
+        logging.info("ISO constraint active")
+        instance.add_string(ISO_CONSTRAINT)
 
         with instance.branch() as child:
-
-            # TODO THIS WOULD BE GREAT FOR ML!!! was mach ein PM, wenn die Ziele nicht erreicht werden können
-            # TODO rausfinden, wie man hier am besten vorgeht, damit man eine Lösung findet! hard-constraints relaxen
-
-            # after the first failed attempt
-            if count > 0:
-
-                if c % steps == 0:
-                    # find the items with the next lowest weighted target profit margin
-                    index = get_lowest(data.target_weights, lowest)
-                    lowest = data.target_weights[index]
-                    # reset item target profit margins to original
-                    data.item_targets = targets[:]
-                    c = 0
-                
-                # reduce target profit margin by 1% each time
-                data.item_targets[index] = targets[index] - c/100
-
-            add_data(child, data)
-
-            # try to solve the COP with the new target profit margins
+            child.add_string("obj = 0.0;")
             res = child.solve()
-            status = res.status
+            if res.status == Status.UNSATISFIABLE:
+                # the ISO constraint prevents a valid solution to be found
+                logging.info("UNSATISFIABLE: ISO constraint")
+                result.satisfiable == False
+                result.message = "There is no valid solution for this problem instance. Please consider changing the jobs' selection criteria."
+                return result
+
+    # 3) check for each item
+    objective = "constraint obj = "
+    for i, item in enumerate(items):
+
+        # search for optimal values of individual objectives
+        # --> costs / margin
+        res = opt(instance, f"obj = obj_costs[{item.midx}];")
         
-        c += 1
-        count += 1
+        if not res:
+            # something went wrong
+            result.satisfiable = False
+            result.message = "Something went wrong!"
+            return result
+        
+        item.optimal_costs = res.objective
+        item.optimal_margin = res["margin"][i]
+        
+        # check if the item's target profit margin would be met, if the constraint is active
+        if item.constrained and (item.target_margin-item.optimal_margin) > 0:
+            # no, the problem instance will be UNSATISFIABLE
+            logging.info(f"UNSATISFIABLE: item {data.items[i]} target profit margin constraint.")
+            result.satisfiable = False
+            result.message = "At least one of the items' target profit margins cannot be reached. You could consider to lower them."
+        
+            item.satisfiable = False
+            item.distance = item.target_margin-item.optimal_margin 
 
-    if status == Status.OPTIMAL_SOLUTION:
-        result.successful = True
+        # --> quality     
+        res = opt(instance, f"obj = obj_quality[{item.midx}];")
 
-        result.assignment = res["assigned"]
-        result.item_costs = res["obj_costs"]
-        result.item_quality = res["obj_quality"]
-        result.item_margin = res["margin"]
-        result.project_margin = res["profit_margin"]
-        result.capacity_violations = res["capacity_violations"]
-        result.parallel_violations = res["parallel_violations"]
+        if not res:
+            # something went wrong
+            result.satisfiable = False
+            result.message = "Something went wrong!"
+            return result
 
-        result.evaluate_optimal()
+        item.optimal_quality = res.objective
+        
+
+        # put together weighted item objective
+        objective += f"({item.margin_weight}*(obj_costs[{item.midx}]/{item.optimal_costs}) + {item.quality_weight}*(obj_quality[{item.midx}]/{item.optimal_quality})) + " 
+
+    # add soft constraint costs
+    objective += f"parallel_violations + capacity_violations;"
+
+    # add objective
+    instance.add_string(objective)
+    logging.debug(objective)
+
+    # try to find a solution without the target profit margin constraints
+    solution = instance.solve().solution
+
+    # check if the instance is solvable so far (all items satisfiable)
+    if result.satisfiable:
+
+        # add the item target profit margin constraints, if active
+        for item in items:
+            if item.constrained:
+                instance.add_string(item.constraint)
+
+        # check if the problem instance is still solvable
+        res = instance.solve()
+        if res.status == Status.OPTIMAL_SOLUTION:
+            # yes, override the solution
+            solution = res.solution
+            result.satisfiable = True
+            result.message = "Optimal solution found!"
+
+            # add the project margin constraint if active
+            if target_active:
+                instance.add_string(PROJECT_MARGIN_CONSTRAINT)
+
+                #check if the problem instance is still solvable
+                res = instance.solve()
+                if res.status == Status.OPTIMAL_SOLUTION:
+                    # yes, override the solution
+                    solution = res.solution
+                    result.satisfiable = True
+                    result.message = "Optimal solution found!"
+                else:
+                    result.satisfiable = False
+                    result.message = "The project's target profit margin cannot be reached. You could consider to lower it."                        
+
+    # update the item information
+    for i, item in enumerate(items):
+        item.actual_margin = solution.margin[i]
+        item.actual_quality = solution.obj_quality[i]
+
+    result.assignment = solution.assigned
     
-        logging.info(f"Optimal solution found after {count} attempts.")
-        logging.debug(res)
-        
-    else:
-        # TODO add proper error handling
-        logging.error(f"No optimal solution could be found: {status}]")
+    result.items = items
 
+    result.project_margin = solution.profit_margin
+    result.capacity_violations = solution.capacity_violations
+    result.parallel_violations = solution.parallel_violations
+    
+    logging.debug(solution)
+        
     return(result)
-    

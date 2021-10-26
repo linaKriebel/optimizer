@@ -29,30 +29,32 @@ if __name__ == "__main__":
     # call minizinc
     logging.info("Start optimization process")
     result = minimizer.solve(data, iso, target, 10)
-    print(result)
 
     # connect to bm
     bmconnector.login(HOSTNAME)
 
-    if result:
+    if result.satisfiable:
         for i in range(data.m):
             round_id = dbconnector.get_current_round(data.jobs[i])
-            resource_id = data.resources[result["assigned"][i]-1]
+            resource_id = data.resources[result.assignment[i]-1] # minizinc index 1..n vs. 0..n-1
 
             # send results to bm
-            status = bmconnector.set_resource(resource_id, round_id)
-            if status == 'OK':
-                logging.info(f"Resource {resource_id} successfully set in job {data.jobs[i]}.")
-            else:
-                logging.warning((f"A problem occurred while setting resource {resource_id} in job {data.jobs[i]}: {status}"))
+            bmconnector.set_resource(resource_id, round_id)
+        
+
 
         # TODO give some useful statistics to the user
-        for item_id in data.items:
+        # status = bmconnector.set_note(item_id, statistics)
+        # if status == 'OK':
+        #     logging.info(f"Statistics successfully updated for item {item_id}.")
+        # else:
+        #     logging.warning(f"A problem occurred while updating statistics for item {item_id}: {status}")
+    
+    else:
+        print(result.message)
+        for i in result.items:
+            print(i)
 
-            status = bmconnector.set_note(item_id, "Funktioniert das?")
-            if status == 'OK':
-                logging.info(f"Statistics successfully updated for item {item_id}.")
-            else:
-                logging.warning(f"A problem occurred while updating statistics for item {item_id}: {status}")
+        logging.info(f"No solution found!")
 
        

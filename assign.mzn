@@ -28,15 +28,24 @@ array[RESOURCE,JOB] of int: price;
 array[RESOURCE,DAY] of int: schedule;
 array[JOB,DAY] of int: planned;
 
+% check data plausibility
+constraint forall(j in JOB)(
+  assert(exists(r in RESOURCE)(ranking[r,j] > 0), "There is no matching resource for job \(j)")
+);
+
+% assignment variable
 array[JOB] of var RESOURCE: assigned;
 
+% objective values
+array[ITEM] of var float: obj_costs;
+array[ITEM] of var float: obj_quality;
+
+array[RESOURCE,DAY] of var int: capacity;
+
+% other variables
 array[ITEM] of var int: costs;
 array[ITEM] of var float: margin;
 var float: profit_margin;
-
-array[ITEM] of var float: quality;
-
-array[RESOURCE,DAY] of var int: capacity;
 
 var int: parallel_violations;
 var int: capacity_violations;
