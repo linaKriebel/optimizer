@@ -57,8 +57,11 @@ constraint forall(i in ITEM)(sum(j in JOB where item[j] = i) (price[assigned[j],
 constraint forall(i in ITEM)(((profit[i] - costs[i]) / profit[i]) = margin[i]);
 constraint profit_margin = ((sum(i in ITEM)(profit[i]) - sum(i in ITEM)(costs[i])) / sum(i in ITEM)(profit[i]));
 
-% quality = sum(rank of assigned resource) per job of item
-constraint forall(i in ITEM)(sum(j in JOB where item[j] = i)(ranking[assigned[j], j])/sum(j in JOB where item[j] = i)(1) = quality[i]);
+% quality objective function
+constraint forall(i in ITEM)(sum(j in JOB where item[j] = i)(ranking[assigned[j], j])/sum(j in JOB where item[j] = i)(1) = obj_quality[i]);
+
+% costs objective function
+constraint forall(i in ITEM)(sum(j in JOB where item[j] = i) (price[assigned[j],j])/sum(j in JOB where item[j] = i)(1) = obj_costs[i]);
 
 % HARD CONSTRAINTS
 
@@ -83,4 +86,4 @@ constraint capacity_violations = sum(r in RESOURCE, d in DAY)(capacity[r,d] < 0)
 
 solve minimize obj;
 
-output["assigned = \(assigned);\nmargin = \(margin);\ncosts = \(costs);\nquality = \(quality);\nprofit margin = \(profit_margin);\ncapacity violations = \(capacity_violations);\nparallel violations = \(parallel_violations);\nobj = \(obj)"];
+output["assigned = \(assigned);\nmargin = \(margin);\ncosts = \(costs);\nquality = \(obj_quality);\nprofit margin = \(profit_margin);\ncapacity violations = \(capacity_violations);\nparallel violations = \(parallel_violations);\nobj = \(obj)"];
