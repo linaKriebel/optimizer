@@ -1,7 +1,45 @@
 import logging
+
+from dataclasses import dataclass, field
+from typing import List
 from minizinc import Instance, Model, Solver, Status
 
 from collector import AssignmentData
+
+@dataclass
+class AssignmentResult:
+    k: int # number of items
+
+    successful: bool = False 
+
+    original_item_target_margin: List = field(default_factory=list)
+    optimal_costs: List = field(default_factory=list)
+    optimal_quality: List = field(default_factory=list)
+
+    delta_margin: int = 0
+    delta_costs: int = 0
+    delta_quality = 0
+
+    assignment: List = field(default_factory=list)
+    item_costs: List = field(default_factory=list)
+    item_margin: List = field(default_factory=list)
+    item_quality: List = field(default_factory=list)
+    
+    project_margin: float = 0.0
+    capacity_violations: int = 0
+    parallel_violations: int = 0
+
+    def __post_init__(self):
+        self.optimal_costs = [0 for i in range(self.k)]
+        self.optimal_quality = [0 for i in range(self.k)]
+
+    def evaluate_optimal(self):
+        # difference between target and actual margin per item (converted to percent, rounded to int)
+        self.delta_margin = [round((self.original_item_target_margin[i] - self.item_margin[i]) * 100) for i in range(self.k)]
+
+        # percentage variance of actual to optimal value --> the solution could have been x percent better 
+        self.delta_costs = [round((self.item_costs[i] * 100) / self.optimal_costs[i])-100 for i in range(self.k)]
+        self.delta_qualits = [round((self.item_quality[i] * 100) / self.optimal_quality[i])-100 for i in range(self.k)]
 
 def get_lowest(targets, lowest):
     l = 100
@@ -30,7 +68,7 @@ def add_data(instance, data: AssignmentData):
     instance["schedule"] = data.schedule
     instance["planned"] = data.planned
 
-def opt(model, solver, data, objective):
+def opt(model, solver, data: AssignmentData, objective):
     
     instance = Instance(solver, model)
     add_data(instance, data)
@@ -98,6 +136,7 @@ def solve(data, iso, target_active, steps):
 
     # save a copy of the original item target profit margins
     targets = data.item_targets[:]
+    result.original_item_target_margin = targets
 
     index = 0 # index of the currently lowest weighted item target profit margin
     lowest = 0 # currently lowest weighted item target profit margin
@@ -106,11 +145,8 @@ def solve(data, iso, target_active, steps):
     count = 0
     status = Status.UNSATISFIABLE
     logging.info("Start searching for optimal solution")
-    while status == Status.UNSATISFIABLE:
-
-        # TODO terminate after x iterations
-        if count > 100:
-            break
+    # TODO terminate after given time
+    while status == Status.UNSATISFIABLE and count < 100:
 
         with instance.branch() as child:
 
@@ -134,14 +170,31 @@ def solve(data, iso, target_active, steps):
             add_data(child, data)
 
             # try to solve the COP with the new target profit margins
-            result = child.solve()
-            status = result.status
+            res = child.solve()
+            status = res.status
         
         c += 1
         count += 1
+
+    if status == Status.OPTIMAL_SOLUTION:
+        result.successful = True
+
+        result.assignment = res["assigned"]
+        result.item_costs = res["obj_costs"]
+        result.item_quality = res["obj_quality"]
+        result.item_margin = res["margin"]
+        result.project_margin = res["profit_margin"]
+        result.capacity_violations = res["capacity_violations"]
+        result.parallel_violations = res["parallel_violations"]
+
+        result.evaluate_optimal()
     
-    # TODO return result as custom object
-    logging.info(f"Solution found after {count} attempts: {result.status}")
-    logging.debug(f"Time needed: {result.statistics['time']}")
-    logging.debug(result)
+        logging.info(f"Optimal solution found after {count} attempts.")
+        logging.debug(res)
+        
+    else:
+        # TODO add proper error handling
+        logging.error(f"No optimal solution could be found: {status}]")
+
     return(result)
+    
