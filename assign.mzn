@@ -40,8 +40,6 @@ array[JOB] of var RESOURCE: assigned;
 array[ITEM] of var float: obj_costs;
 array[ITEM] of var float: obj_quality;
 
-array[RESOURCE,DAY] of var int: capacity;
-
 % other variables
 array[ITEM] of var int: costs;
 array[ITEM] of var float: margin;
@@ -71,18 +69,18 @@ constraint forall(j in JOB)(ranking[assigned[j], j] > 0);
 % SOFT CONSTRAINTS
 
 % jobs that are running in parallel should not be done by the same resource
-constraint parallel_violations = sum(j1, j2 in JOB where j1 < j2 /\ workflow[j1] = workflow[j2])(assigned[j1] != assigned[j2]);
+constraint parallel_violations = sum(j1, j2 in JOB where j1 < j2)(
+  let {
+    	array[DAY] of var bool:p1 = [planned[j1,d]>0| d in DAY];
+    	array[DAY] of var bool:p2 = [planned[j2,d]>0| d in DAY];
+  } in (p1 = p2) /\ (assigned[j1] = assigned[j2]));
 
 % a resource should not take more jobs than their capacity allows
-constraint forall(r in RESOURCE, d in DAY)((schedule[r,d] - sum(j in JOB where assigned[j] = r)(planned[j,d])) = capacity[r,d]);
-constraint capacity_violations = sum(r in RESOURCE, d in DAY)(capacity[r,d] < 0);
-
-% (optional) REV should be less expensive than TRA
-% constraint forall(j1 in JOB) (
-%    forall(j2 in workflow[j1]) (
-%        (jobtype[j1] = TRA /\ jobtype[j2] = REV) -> price[assigned[j1],j1] >= price[assigned[j2],j2]
-%    )
-%  );
+constraint capacity_violations = sum(r in RESOURCE, d in DAY)(
+  let {
+    var int: capacity = (schedule[r,d] - sum(j in JOB where assigned[j] = r)(planned[j,d]))
+  } in capacity < 0
+);
 
 solve minimize obj;
 
