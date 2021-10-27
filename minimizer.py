@@ -1,4 +1,5 @@
 import logging
+import enum
 
 from dataclasses import dataclass, field
 from typing import List
@@ -15,12 +16,18 @@ ISO_CONSTRAINT = """
                 """
 PROJECT_MARGIN_CONSTRAINT = "constraint profit_margin >= target;"
 
+class AssignmentStatus(enum.Enum):
+    UNSATISFIABLE = 1
+    OPTIMAL = 2
+    ALTERNATIVE = 3
+    ERROR = 4
+
 @dataclass
 class AssignmentResult:
     k: int # number of items
 
-    satisfiable: bool = True
-    message: str = "" 
+    status: AssignmentStatus = AssignmentStatus.OPTIMAL
+    message: str = "A valid assignment of resources to all job that optimizes the given objectives was found." 
 
     assignment: List = field(default_factory=list)
 
@@ -56,6 +63,9 @@ class ItemResult:
     def __post_init__(self):
         if self.constrained:
             self.constraint = f"constraint margin[{self.midx}] >= item_targets[{self.midx}];"
+
+    def update_constraint(self, target):
+        self.constraint = f"constraint margin[{self.midx}] >= {target};"
 
 def add_data(instance, data: AssignmentData):
     instance["n"] = data.n
@@ -101,7 +111,7 @@ def solve(data: AssignmentData, iso, target_active, steps):
     add_data(instance, data)
 
     result = AssignmentResult(data.k)
-    items = [ItemResult(i+1, target_active, data.item_targets[i], data.target_weights[i], data.ranking_weights[i]) for i in range(data.k)]
+    items = [ItemResult(i+1, data.item_constraints[i], data.item_targets[i], data.target_weights[i], data.ranking_weights[i]) for i in range(data.k)]
 
     # 1) check if the problem instance has any data inconsistencies
     with instance.branch() as child:
@@ -110,15 +120,15 @@ def solve(data: AssignmentData, iso, target_active, steps):
             child.solve()
         except error.MiniZincAssertionError as err:
             # there must be an error in the problem instance, e.g. not every job has at least one matching resource
-            logging.info(f"UNSATISFIABLE: {err.message}") 
-            result.satisfiable = False
-            result.message = "The problem instance is not valid. Please check whether each job has at least one matching resource."
+            logging.info(err) 
+            result.status = AssignmentStatus.ERROR
+            result.message = "A valid assignment is not possible. Please check whether each job has at least one matching resource."
             return result
 
     # 2) check optional ISO constraint 
     if iso:
         # add ISO 17100 constraint to model instance
-        logging.info("ISO constraint active")
+        logging.info("ISO constraint added")
         instance.add_string(ISO_CONSTRAINT)
 
         with instance.branch() as child:
@@ -127,8 +137,10 @@ def solve(data: AssignmentData, iso, target_active, steps):
             if res.status == Status.UNSATISFIABLE:
                 # the ISO constraint prevents a valid solution to be found
                 logging.info("UNSATISFIABLE: ISO constraint")
-                result.satisfiable == False
-                result.message = "There is no valid solution for this problem instance. Please consider changing the jobs' selection criteria."
+                result.status = AssignmentStatus.UNSATISFIABLE
+                result.message = """A valid assignment that is ISO 17100 compliant is not possible. \n 
+                                    In order to solve this problem you could change or remove selection criteria from 
+                                    the jobs in order to find more or different matching resources."""
                 return result
 
     # 3) check for each item
@@ -141,7 +153,7 @@ def solve(data: AssignmentData, iso, target_active, steps):
         
         if not res:
             # something went wrong
-            result.satisfiable = False
+            result.status = AssignmentStatus.ERROR
             result.message = "Something went wrong!"
             return result
         
@@ -152,10 +164,12 @@ def solve(data: AssignmentData, iso, target_active, steps):
         if item.constrained and (item.target_margin-item.optimal_margin) > 0:
             # no, the problem instance will be UNSATISFIABLE
             logging.info(f"UNSATISFIABLE: item {data.items[i]} target profit margin constraint.")
-            result.satisfiable = False
+            result.status = AssignmentStatus.ALTERNATIVE
             result.message = "At least one of the items' target profit margins cannot be reached. You could consider to lower them."
         
             item.satisfiable = False
+            # update the constraint to at least reach the optimal target profit margin
+            item.update_constraint(item.optimal_margin)
             item.distance = item.target_margin-item.optimal_margin 
 
         # --> quality     
@@ -163,13 +177,12 @@ def solve(data: AssignmentData, iso, target_active, steps):
 
         if not res:
             # something went wrong
-            result.satisfiable = False
+            result.status = AssignmentStatus.ERROR
             result.message = "Something went wrong!"
             return result
 
         item.optimal_quality = res.objective
         
-
         # put together weighted item objective
         objective += f"({item.margin_weight}*(obj_costs[{item.midx}]/{item.optimal_costs}) + {item.quality_weight}*(obj_quality[{item.midx}]/{item.optimal_quality})) + " 
 
@@ -181,38 +194,40 @@ def solve(data: AssignmentData, iso, target_active, steps):
     logging.debug(objective)
 
     # try to find a solution without the target profit margin constraints
-    print("start search 1")
-    solution = instance.solve().solution
-    print("finished search 1")
-
-    # add the item target profit margin constraint, if active and (probably) satisfiable
-    for item in items:
-        if item.constrained and item.satisfiable:
-            print("add item target constraint")
-            instance.add_string(item.constraint)
-
-    # check if the problem instance is still solvable
-    print("start search 2")
+    logging.info("Start search without target profit margin constraints")
     res = instance.solve()
-    print("finished search 2")
+    logging.info(f"Solution found after {res.statistics['time']}")
+    solution = res.solution
+    
+    # add the (adjusted) items' target profit margin constraints if active
+    for item in items:
+        if item.constrained:
+            logging.info(f"Item target profit margin constraint added for item {item.midx}")
+            instance.add_string(item.constraint)
+            
+    # check if the problem instance is still solvable
+    logging.info("Start search with item target profit margin constraints")
+    res = instance.solve()
+    logging.info(f"Solution found after {res.statistics['time']}")
     if res.status == Status.OPTIMAL_SOLUTION:
         # yes, override the solution
         solution = res.solution
 
         # add the project margin constraint if active
         if target_active:
-            print("add project target constraint")
+            logging.info("Project target profit margin constraint added")
             instance.add_string(PROJECT_MARGIN_CONSTRAINT)
 
             #check if the problem instance is still solvable
-            print("start search 3")
+            logging.info("Start search with all active constraints")
             res = instance.solve()
-            print("finished search 3")
+            logging.info(f"Solution found after {res.statistics['time']}")
             if res.status == Status.OPTIMAL_SOLUTION:
                 # yes, override the solution
                 solution = res.solution
             else:
-                result.satisfiable = False
+                logging.info("UNSATISFIABLE: project target profit margin constraint")
+                result.status = AssignmentStatus.ALTERNATIVE
                 result.message = "The project's target profit margin cannot be reached. You could consider to lower it."                        
 
     # update the item information
