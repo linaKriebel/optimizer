@@ -161,7 +161,7 @@ def solve(data: AssignmentData, iso, target_active, steps):
         item.optimal_margin = res["margin"][i]
         
         # check if the item's target profit margin would be met, if the constraint is active
-        if item.constrained and (item.target_margin-item.optimal_margin) > 0:
+        if item.constrained and item.optimal_margin < item.target_margin:
             # no, the problem instance will be UNSATISFIABLE
             logging.info(f"UNSATISFIABLE: item {data.items[i]} target profit margin constraint.")
             result.status = AssignmentStatus.ALTERNATIVE
