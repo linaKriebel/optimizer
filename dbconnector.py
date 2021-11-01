@@ -131,7 +131,7 @@ def get_planned_time(job_id):
                     WHERE jp.JobID = %s;""", 
                     (job_id, ))
     res = cursor.fetchall()
-    return res[0][0]
+    return res[0][0] if res[0][0] else 0
 
 def get_results_of_jobs(order_id):
     cursor.execute("""

@@ -134,7 +134,7 @@ def get_data(order):
         # get item note, that constains item target profit margin and weightings
         note = dbconnector.get_item_note(it)
 
-        # parse note (<target>-<weight>-<weight>)
+        # parse note (<constrained>-<target>-<weight>-<weight>)
         if note:
             data.item_constraints.append(get_item_constraint(note))
             data.item_targets.append(get_item_target(note, order))
@@ -179,7 +179,10 @@ def get_data(order):
         start = dbconnector.get_job_startdate(job)
         end = dbconnector.get_job_enddate(job)
 
-        delta = (end - start).days
+        if start.date() == end.date():
+            delta = 1
+        else:
+            delta = (end - start).days
 
         # rate = planned time per day
         rate = round((pt / delta) * 0.0003, 2) # in hours
