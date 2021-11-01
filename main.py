@@ -132,9 +132,9 @@ if __name__ == "__main__":
             bmconnector.set_note(item_id, item_statistics)
             print(item_statistics)
         
-        # for i, job in enumerate(data.jobs):
-        #     round_id = dbconnector.get_current_round(job)
-        #     resource_id = data.resources[result.assignment[i]-1] # minizinc index 1..n vs. 0..n-1
-        #     # send results to bm
-        #     bmconnector.set_resource(resource_id, round_id)
+        for i, job in enumerate(data.jobs):
+            round_id = dbconnector.get_current_round(job)
+            resource_id = data.resources[result.assignment[i]-1] # minizinc index 1..n vs. 0..n-1
+            # send results to bm
+            bmconnector.set_resource(resource_id, round_id)
         
