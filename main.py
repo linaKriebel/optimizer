@@ -42,8 +42,8 @@ if __name__ == "__main__":
     if result.status == minimizer.AssignmentStatus.ALTERNATIVE:
         statistics += f"No valid solution for the given constraints could be found. A valid alternative is suggested.\n"
 
-        if target_active and result.target < data.target: 
-            statistics += f"original target profit margin had to be lowered by {round((data.target-result.project_margin)*100,2)}% to {round(result.project_margin*100,2)}% \n"
+        if target_active and result.project_margin < data.target: 
+            statistics += f"target profit margin of {round(data.target*100,2)}% could not be reached \n"
         else:
             statistics += f"project profit margin: {round(result.project_margin*100,2)}%"            
         statistics += f"{result.parallel_violations} parallel assignments \n{result.capacity_violations} capacities exceeded"
